@@ -56,7 +56,7 @@ task installMaven {
 task compile(type:Exec, dependsOn: installMaven) {
     group = "build"
     description = "Compile maven project"
-    environment = System.getenv()
+//    environment = System.getenv()
     commandLine installMaven.ext.mvn, "compile"
 }
 
@@ -64,7 +64,7 @@ task compile(type:Exec, dependsOn: installMaven) {
 task build(type:Exec, dependsOn: compile) {
     group = "build"
     description = "Assemble jar file"
-    environment = System.getenv()
+//    environment = System.getenv()
     commandLine installMaven.ext.mvn, "install"
 }
 
@@ -73,7 +73,7 @@ task build(type:Exec, dependsOn: compile) {
 task clean(type:Exec, dependsOn: installMaven) {
     group = "build"
     description = "Clean maven project"
-    environment = System.getenv()
+//    environment = System.getenv()
     commandLine installMaven.ext.mvn, "clean"
 }
 
