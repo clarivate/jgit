@@ -1,5 +1,6 @@
 /.project
 /target
+/.gradle
 /maven
 infer-out
 bazel-*
