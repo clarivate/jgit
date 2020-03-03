@@ -24,8 +24,6 @@ artifactory {
 }
 
 def toolsDir = file("$rootDir/maven")
-def mvnver = "3.6.3"
-version = "5.7.0-SNAPSHOT"
 
 task installMaven {
     mkdir toolsDir.path
@@ -81,7 +79,7 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             artifactId = 'jgit-s3-fork'
-            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgitver}.jar"))
             artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
         }
     }
