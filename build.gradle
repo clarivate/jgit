@@ -80,9 +80,9 @@ task clean(type:Exec, dependsOn: installMaven) {
 publishing {
     publications {
         maven(MavenPublication) {
-            artifact "$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"
-            artifact "$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"
-            artifact "$rootDir/org.eclipse.jgit.pgm/target/jgit"
+            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
         }
     }
 }
