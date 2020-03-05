@@ -14,6 +14,7 @@ configurations.all {
 
 def toolsDir = file("$rootDir/maven")
 version="${jgit_version}-patch1"
+//println "$version"
 
 artifactory {
     publish {
@@ -80,7 +81,8 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             artifactId = 'jgit-s3-fork'
-            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}-SNAPSHOT.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"))
             artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
         }
     }
