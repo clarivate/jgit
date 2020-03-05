@@ -13,7 +13,7 @@ configurations.all {
 //artifactoryPublish.skip = true
 
 def toolsDir = file("$rootDir/maven")
-version="${jgit_version}-patch3"
+version="${jgit_version}-s3fix-patch3"
 //println "$version"
 
 artifactory {
@@ -79,17 +79,10 @@ task clean(type:Exec, dependsOn: installMaven) {
 
 publishing {
     publications {
-        mavenJgit(MavenPublication) {
-            artifactId = 'jgit-s3-fork'
-            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"))
-        }
-        mavenCli(MavenPublication) {
-            artifactId = 'jgit.cli-s3-fork'
-            artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
-        }
-        mavenHttpServer(MavenPublication) {
-            artifactId = 'jgit.http.server-s3-fork'
-            artifact(file("$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"))
+        maven(MavenPublication) {
+            artifact "$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"
+            artifact "$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"
+            artifact "$rootDir/org.eclipse.jgit.pgm/target/jgit"
         }
     }
 }
