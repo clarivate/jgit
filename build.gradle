@@ -13,7 +13,10 @@ configurations.all {
 //artifactoryPublish.skip = true
 
 def toolsDir = file("$rootDir/maven")
-println "jgit version: ${version}, patch version: ${patch_version}"
+def jgit_version = version
+def patch_version = "${jgit_version}-${patch_version_suffix}"
+
+println "jgit version: ${jgit_version}, patch version: ${patch_version}"
 
 artifactory {
     publish {
