@@ -1,0 +1,90 @@
+plugins {
+    id "de.undercouch.download" version "4.0.4"
+    id 'nebula.release' version "13.0.0"
+    id "com.jfrog.artifactory" version "4.13.0"
+    id 'maven-publish'
+}
+
+configurations.all {
+    resolutionStrategy.cacheDynamicVersionsFor 1, 'hours'
+    resolutionStrategy.cacheChangingModulesFor 1, 'hours'
+}
+
+//artifactoryPublish.skip = true
+
+def toolsDir = file("$rootDir/maven")
+version="${jgit_version}-patch1"
+//println "$version"
+
+artifactory {
+    publish {
+        defaults {
+            publications('mavenJava')
+            publishArtifacts = true
+            publishPom = true
+            publishIvy = false
+        }
+    }
+}
+
+task installMaven {
+    mkdir toolsDir.path
+    def mvn = new FileNameFinder().getFileNames(toolsDir.path, "apache-maven*/bin/mvn")
+    if (!mvn) {
+        println "Downloading Maven Binaries into ${toolsDir}..."
+        download {
+            src "http://mirror.metrocast.net/apache/maven/maven-3/${maven_version}/binaries/apache-maven-${maven_version}-bin.tar.gz"
+            dest new File(toolsDir, "apache-maven.tar.gz")
+            overwrite false
+        }
+        println "Unzipping ${toolsDir.path}/apache-maven.tar.gz"
+        copy {
+            from tarTree(resources.gzip("${toolsDir.path}/apache-maven.tar.gz"))
+            into toolsDir
+        }
+    }
+    mvn = new FileNameFinder().getFileNames(toolsDir.path, "apache-maven*/bin/mvn")
+    if (mvn) {
+        installMaven.ext.mvn = mvn[0]
+        println "Found maven cli ${installMaven.ext.mvn}"
+    } else {
+        throw new GradleException("Could not find maven installation")
+    }
+}
+
+// Build the maven targets
+task compile(type:Exec, dependsOn: installMaven) {
+    group = "build"
+    description = "Compile maven project"
+//    environment = System.getenv()
+    commandLine installMaven.ext.mvn, "compile"
+}
+
+// Build the maven targets
+task build(type:Exec, dependsOn: compile) {
+    group = "build"
+    description = "Assemble jar file"
+//    environment = System.getenv()
+    commandLine installMaven.ext.mvn, "install"
+}
+
+
+// Maven clean target
+task clean(type:Exec, dependsOn: installMaven) {
+    group = "build"
+    description = "Clean maven project"
+//    environment = System.getenv()
+    commandLine installMaven.ext.mvn, "clean"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = 'jgit-s3-fork'
+            artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"))
+            artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
+        }
+    }
+}
+
