@@ -89,6 +89,8 @@ import org.eclipse.jgit.util.Base64;
 import org.eclipse.jgit.util.HttpSupport;
 import org.eclipse.jgit.util.StringUtils;
 import org.eclipse.jgit.util.TemporaryBuffer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -113,6 +115,9 @@ import org.xml.sax.helpers.XMLReaderFactory;
  * sensitive data from the operators of the S3 service.
  */
 public class AmazonS3 {
+
+	private static final Logger LOG = LoggerFactory.getLogger(AmazonS3.class);
+
 	private static final Set<String> SIGNED_HEADERS;
 
 	private static final String HMAC = "HmacSHA1"; //$NON-NLS-1$
@@ -254,6 +259,9 @@ public class AmazonS3 {
 		privateKey = new SecretKeySpec(Constants.encodeASCII(secret), HMAC);
 
 		token = props.getProperty(Keys.TOKEN);
+		LOG.info("supplied properties: accesskey={}, secretkey={}..., token={}...", publicKey,
+				secret.substring(0, Math.max(8, secret.length())),
+				(token != null? token.substring(0, Math.max(8, token.length())) : "null"));
 
 		final String pacl = props.getProperty(Keys.ACL, "PRIVATE"); //$NON-NLS-1$
 		if (StringUtils.equalsIgnoreCase("PRIVATE", pacl)) //$NON-NLS-1$
