@@ -72,6 +72,8 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Ref.Storage;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.SymbolicRef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Transport over the non-Git aware Amazon S3 protocol.
@@ -100,6 +102,7 @@ import org.eclipse.jgit.lib.SymbolicRef;
  */
 public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	static final String S3_SCHEME = "amazon-s3"; //$NON-NLS-1$
+	private static final Logger LOG = LoggerFactory.getLogger(TransportAmazonS3.class);
 
 	static final TransportProtocol PROTO_S3 = new TransportProtocol() {
 		@Override
@@ -195,6 +198,7 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	private static Properties loadPropertiesFile(File propsFile)
 			throws NotSupportedException {
 		try {
+			LOG.info("Loading properties from {}", propsFile);
 			return AmazonS3.properties(propsFile);
 		} catch (IOException e) {
 			throw new NotSupportedException(MessageFormat.format(
