@@ -260,8 +260,8 @@ public class AmazonS3 {
 
 		token = props.getProperty(Keys.TOKEN);
 		LOG.info("supplied properties: accesskey={}, secretkey={}..., token={}...", publicKey,
-				secret.substring(0, Math.max(8, secret.length())),
-				(token != null? token.substring(0, Math.max(8, token.length())) : "null"));
+				secret.substring(0, Math.min(8, secret.length())),
+				(token != null? token.substring(0, Math.min(8, token.length())) : "null"));
 
 		final String pacl = props.getProperty(Keys.ACL, "PRIVATE"); //$NON-NLS-1$
 		if (StringUtils.equalsIgnoreCase("PRIVATE", pacl)) //$NON-NLS-1$
