@@ -1,6 +1,5 @@
 plugins {
     id "de.undercouch.download" version "4.0.4"
-    id 'nebula.release' version "13.0.0"
     id "com.jfrog.artifactory" version "4.13.0"
     id 'maven-publish'
 }
@@ -83,17 +82,14 @@ publishing {
     publications {
         mavenLib(MavenPublication) {
             artifactId = 'org.eclipse.jgit'
-            version = "$patch_version"
             artifact(file("$rootDir/org.eclipse.jgit/target/org.eclipse.jgit-${jgit_version}.jar"))
         }
         mavenHttp(MavenPublication) {
             artifactId = 'org.eclipse.jgit.http.server'
-            version = "$patch_version"
             artifact(file("$rootDir/org.eclipse.jgit.http.server/target/org.eclipse.jgit.http.server-${jgit_version}.jar"))
         }
         mavenCli(MavenPublication) {
             artifactId = 'jgit'
-            version = "$patch_version"
             artifact(file("$rootDir/org.eclipse.jgit.pgm/target/jgit"))
         }
     }
