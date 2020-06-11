@@ -77,6 +77,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -303,19 +304,40 @@ public class AmazonS3 {
 	 */
 	public URLConnection get(String bucket, String key)
 			throws IOException {
+		return get(bucket, key, null);
+	}
+
+	/**
+	 * Get the content of a versioned bucket object.
+	 *
+	 * @param bucket
+	 *            name of the bucket storing the object.
+	 * @param key
+	 *            key of the object within its bucket.
+	 * @param version
+	 * 						object version to get
+	 * @return connection to stream the content of the object. The request
+	 *         properties of the connection may not be modified by the caller as
+	 *         the request parameters have already been signed.
+	 * @throws java.io.IOException
+	 *             sending the request was not possible.
+	 */
+	public URLConnection get(String bucket, String key, String version)
+			throws IOException {
+		String versionedKey = version != null? "?versionId=" + version : key; //$NON-NLS-1$
 		for (int curAttempt = 0; curAttempt < maxAttempts; curAttempt++) {
-			final HttpURLConnection c = open("GET", bucket, key); //$NON-NLS-1$
+			final HttpURLConnection c = open("GET", bucket, versionedKey); //$NON-NLS-1$
 			authorize(c);
 			switch (HttpSupport.response(c)) {
-			case HttpURLConnection.HTTP_OK:
-				encryption.validate(c, X_AMZ_META);
-				return c;
-			case HttpURLConnection.HTTP_NOT_FOUND:
-				throw new FileNotFoundException(key);
-			case HttpURLConnection.HTTP_INTERNAL_ERROR:
-				continue;
-			default:
-				throw error(JGitText.get().s3ActionReading, key, c);
+				case HttpURLConnection.HTTP_OK:
+					encryption.validate(c, X_AMZ_META);
+					return c;
+				case HttpURLConnection.HTTP_NOT_FOUND:
+					throw new FileNotFoundException(key);
+				case HttpURLConnection.HTTP_INTERNAL_ERROR:
+					continue;
+				default:
+					throw error(JGitText.get().s3ActionReading, key, c);
 			}
 		}
 		throw maxAttempts(JGitText.get().s3ActionReading, key);
@@ -411,10 +433,11 @@ public class AmazonS3 {
 	 * @param data
 	 *            new data content for the object. Must not be null. Zero length
 	 *            array will create a zero length object.
+	 * @return version of the object written or {@code null} if there is no version available
 	 * @throws java.io.IOException
 	 *             creation/updating failed due to communications error.
 	 */
-	public void put(String bucket, String key, byte[] data)
+	public String put(String bucket, String key, byte[] data)
 			throws IOException {
 		if (encryption != WalkEncryption.NONE) {
 			// We have to copy to produce the cipher text anyway so use
@@ -423,7 +446,7 @@ public class AmazonS3 {
 			try (OutputStream os = beginPut(bucket, key, null, null)) {
 				os.write(data);
 			}
-			return;
+			return null;
 		}
 
 		final String md5str = Base64.encodeBytes(newMD5().digest(data));
@@ -442,7 +465,7 @@ public class AmazonS3 {
 
 			switch (HttpSupport.response(c)) {
 			case HttpURLConnection.HTTP_OK:
-				return;
+				return c.getHeaderField("x-amz-version-id");
 			case HttpURLConnection.HTTP_INTERNAL_ERROR:
 				continue;
 			default:
@@ -483,14 +506,55 @@ public class AmazonS3 {
 	public OutputStream beginPut(final String bucket, final String key,
 			final ProgressMonitor monitor, final String monitorTask)
 			throws IOException {
+
+		return beginPut(bucket, key, monitor, monitorTask, null);
+	}
+
+	/**
+	 * Atomically create or replace a single large object.
+	 * <p>
+	 * Initially the returned output stream buffers data into memory, but if the
+	 * total number of written bytes starts to exceed an internal limit the data
+	 * is spooled to a temporary file on the local drive.
+	 * <p>
+	 * Network transmission is attempted only when <code>close()</code> gets
+	 * called at the end of output. Closing the returned stream can therefore
+	 * take significant time, especially if the written content is very large.
+	 * <p>
+	 * End-to-end data integrity is assured by internally computing the MD5
+	 * checksum of the supplied data and transmitting the checksum along with
+	 * the data itself.
+	 *
+	 * @param bucket
+	 *            name of the bucket storing the object.
+	 * @param key
+	 *            key of the object within its bucket.
+	 * @param monitor
+	 *            (optional) progress monitor to post upload completion to
+	 *            during the stream's close method.
+	 * @param monitorTask
+	 *            (optional) task name to display during the close method.
+	 * @param versionConsumer
+	 * 						(optional) consumer for a file version returned in {@code "x-amz-version-id"} header
+	 * @return a stream which accepts the new data, and transmits once closed.
+	 * @throws java.io.IOException
+	 *             if encryption was enabled it could not be configured.
+	 */
+	public OutputStream beginPut(final String bucket, final String key,
+															 final ProgressMonitor monitor, final String monitorTask,
+															 final Consumer<String> versionConsumer)
+			throws IOException {
 		final MessageDigest md5 = newMD5();
 		final TemporaryBuffer buffer = new TemporaryBuffer.LocalFile(tmpDir) {
 			@Override
 			public void close() throws IOException {
 				super.close();
 				try {
-					putImpl(bucket, key, md5.digest(), this, monitor,
+					String version = putImpl(bucket, key, md5.digest(), this, monitor,
 							monitorTask);
+					if (versionConsumer != null) {
+						versionConsumer.accept(version);
+					}
 				} finally {
 					destroy();
 				}
@@ -499,7 +563,7 @@ public class AmazonS3 {
 		return encryption.encrypt(new DigestOutputStream(buffer, md5));
 	}
 
-	void putImpl(final String bucket, final String key,
+	String putImpl(final String bucket, final String key,
 			final byte[] csum, final TemporaryBuffer buf,
 			ProgressMonitor monitor, String monitorTask) throws IOException {
 		if (monitor == null)
@@ -526,7 +590,7 @@ public class AmazonS3 {
 
 			switch (HttpSupport.response(c)) {
 			case HttpURLConnection.HTTP_OK:
-				return;
+				return c.getHeaderField("x-amz-version-id");
 			case HttpURLConnection.HTTP_INTERNAL_ERROR:
 				continue;
 			default:

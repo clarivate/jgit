@@ -43,12 +43,7 @@
 
 package org.eclipse.jgit.transport;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.URLConnection;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -61,6 +56,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 
+import com.sun.xml.internal.messaging.saaj.util.ByteOutputStream;
 import org.eclipse.jgit.errors.NotSupportedException;
 import org.eclipse.jgit.errors.TransportException;
 import org.eclipse.jgit.internal.JGitText;
@@ -102,6 +98,8 @@ import org.slf4j.LoggerFactory;
  */
 public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	static final String S3_SCHEME = "amazon-s3"; //$NON-NLS-1$
+	static final String MANIFEST_EXT = ".manifest";
+
 	private static final Logger LOG = LoggerFactory.getLogger(TransportAmazonS3.class);
 
 	static final TransportProtocol PROTO_S3 = new TransportProtocol() {
@@ -152,6 +150,21 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	 */
 	private final String keyPrefix;
 
+
+	/**
+	 * Maintains object versions so they could be used
+	 * for strong read-after write consistency event after object updates.
+	 * <p>
+	 * On transport close, all files put versions are written to a manifest property file
+	 * with {keyPrefix}.manifest name (parallel to a s3 git folder)
+	 */
+	private final Properties objectVersions = new Properties();
+
+	/**
+	 * Whether any of objects have been put or deleted
+	 */
+	private boolean objectsUpdated = false;
+
 	TransportAmazonS3(final Repository local, final URIish uri)
 			throws NotSupportedException {
 		super(local, uri);
@@ -170,6 +183,13 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 		if (p.endsWith("/")) //$NON-NLS-1$
 			p = p.substring(0, p.length() - 1);
 		keyPrefix = p;
+
+		try {
+			readManifest(keyPrefix + MANIFEST_EXT);
+		} catch (IOException ex) {
+			LOG.error("Failed to load version manifest file", ex);
+			throw new RuntimeException("Failed to load version manifest file", ex);
+		}
 	}
 
 	private Properties loadProperties() throws NotSupportedException {
@@ -227,7 +247,46 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	/** {@inheritDoc} */
 	@Override
 	public void close() {
-		// No explicit connections are maintained.
+		if (objectsUpdated) {
+			writeManifest(keyPrefix + MANIFEST_EXT);
+		}
+	}
+
+	private void readManifest(String manifest) throws IOException {
+		try {
+			final URLConnection c = s3.get(bucket, manifest);
+			try (InputStream in = s3.decrypt(c)) {
+				objectVersions.load(in);
+			}
+		} catch (FileNotFoundException ex) {
+			//manifest does not exist yet
+		}
+	}
+
+	private void writeManifest(String manifest) {
+		try {
+			ByteOutputStream baos = new ByteOutputStream();
+			objectVersions.store(baos, null);
+			s3.put(bucket, manifest, baos.getBytes());
+		} catch (Exception ex) {
+			LOG.error("Error writing the manifest file {}", manifest, ex);
+		}
+	}
+
+	private void trackKey(String key, String version) {
+		if (version != null) {
+			String oldVersion = objectVersions.getProperty(version);
+			if (!version.equals(oldVersion)) {
+				objectVersions.put(key, version);
+				objectsUpdated = true;
+			}
+		}
+	}
+
+	private void untrackKey(String key) {
+		if (objectVersions.remove(key) != null) {
+			objectsUpdated = true;
+		}
 	}
 
 	class DatabaseS3 extends WalkRemoteObjectDatabase {
@@ -295,7 +354,8 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 
 		@Override
 		FileStream open(String path) throws IOException {
-			final URLConnection c = s3.get(bucket, resolveKey(path));
+			final String key = resolveKey(path);
+			final URLConnection c = s3.get(bucket, key, objectVersions.getProperty(key));
 			final InputStream raw = c.getInputStream();
 			final InputStream in = s3.decrypt(c);
 			final int len = c.getContentLength();
@@ -305,18 +365,21 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 		@Override
 		void deleteFile(String path) throws IOException {
 			s3.delete(bucket, resolveKey(path));
+			untrackKey(resolveKey(path));
 		}
 
 		@Override
 		OutputStream writeFile(final String path,
 				final ProgressMonitor monitor, final String monitorTask)
 				throws IOException {
-			return s3.beginPut(bucket, resolveKey(path), monitor, monitorTask);
+			return s3.beginPut(bucket, resolveKey(path), monitor, monitorTask,
+					version-> trackKey(resolveKey(path), version));
 		}
 
 		@Override
 		void writeFile(String path, byte[] data) throws IOException {
-			s3.put(bucket, resolveKey(path), data);
+			String version = s3.put(bucket, resolveKey(path), data);
+			trackKey(resolveKey(path), version);
 		}
 
 		Map<String, Ref> readAdvertisedRefs() throws TransportException {
