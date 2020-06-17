@@ -62,9 +62,10 @@ import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.DateFormat;
 import java.text.MessageFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -919,6 +920,8 @@ public class AmazonS3 {
 
 		private final String delimiter;
 
+		private final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+
 		boolean truncated;
 
 		private StringBuilder data;
@@ -928,6 +931,8 @@ public class AmazonS3 {
 			bucket = bn;
 			prefix = p;
 			delimiter = dlm;
+			TimeZone utc = TimeZone.getTimeZone("UTC");
+			dateFormat.setTimeZone(utc);
 		}
 
 		void list() throws IOException {
@@ -1008,8 +1013,13 @@ public class AmazonS3 {
 				entries.add(entry);
 			else if ("Key".equals(name)) //$NON-NLS-1$
 				entry.key = data.toString().substring(prefix.length());
-			else if ("LastModified".equals(name)) //$NON-NLS-1$
-				entry.lastModified = Instant.parse(data.toString().substring(prefix.length())).toEpochMilli();
+			else if ("LastModified".equals(name)) { //$NON-NLS-1$
+				try {
+					entry.lastModified = dateFormat.parse(data.toString().substring(prefix.length())).getTime();
+				} catch (ParseException e) {
+					throw new SAXException(e);
+				}
+			}
 			else if ("ETag".equals(name)) //$NON-NLS-1$
 				entry.etag = data.toString().substring(prefix.length());
 			else if ("Size".equals(name)) //$NON-NLS-1$
