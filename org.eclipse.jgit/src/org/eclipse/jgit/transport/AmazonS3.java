@@ -920,7 +920,7 @@ public class AmazonS3 {
 
 		private final String delimiter;
 
-		private final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+		private final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
 
 		boolean truncated;
 
