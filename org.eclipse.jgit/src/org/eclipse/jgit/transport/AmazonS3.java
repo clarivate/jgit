@@ -64,6 +64,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.MessageFormat;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -381,6 +382,31 @@ public class AmazonS3 {
 		if (prefix.length() > 0 && !prefix.endsWith("/")) //$NON-NLS-1$
 			prefix += "/"; //$NON-NLS-1$
 		final ListParser lp = new ListParser(bucket, prefix);
+		do {
+			lp.list();
+		} while (lp.truncated);
+		return lp.entries;
+	}
+
+	/**
+	 * List the object entries available within a bucket.
+	 * <p>
+	 * This method is primarily meant for low level bucket listing that can use both prefix and delimiter parameters.
+	 *
+	 * @param bucket
+	 *            name of the bucket whose objects should be listed.
+	 * @param prefix
+	 *            common prefix to filter the results by. Must not be null.
+	 * @param delimiter
+	 * 						delimiter used to group common prefixes
+	 * @return list of {@link ObjectEntry} elements.
+	 * @throws java.io.IOException
+	 *             sending the request was not possible, or the response XML
+	 *             document could not be parsed properly.
+	 */
+	public List<ObjectEntry> list(String bucket, String prefix, String delimiter)
+			throws IOException {
+		final ListParser2 lp = new ListParser2(bucket, prefix, delimiter);
 		do {
 			lp.list();
 		} while (lp.truncated);
@@ -825,6 +851,169 @@ public class AmazonS3 {
 				final String qName) throws SAXException {
 			if ("Key".equals(name)) //$NON-NLS-1$
 				entries.add(data.toString().substring(prefix.length()));
+			else if ("IsTruncated".equals(name)) //$NON-NLS-1$
+				truncated = StringUtils.equalsIgnoreCase("true", data.toString()); //$NON-NLS-1$
+			data = null;
+		}
+	}
+
+	/**
+	 * S3 Object entry
+	 */
+	public interface ObjectEntry {
+		/**
+		 * Object's key
+		 * @return key
+		 */
+		String key();
+		/**
+		 * Object's etag
+		 * @return etag
+		 */
+		String etag();
+		/**
+		 * Object's size
+		 * @return size
+		 */
+		long size();
+		/**
+		 * Object's lastModified timestamp
+		 * @return lastModified
+		 */
+		long lastModified();
+	}
+
+	private static class ObjectEntryImpl implements ObjectEntry {
+		String key;
+		String etag;
+		long size;
+		long lastModified;
+
+		@Override
+		public String key() {
+			return key;
+		}
+
+		@Override
+		public String etag() {
+			return etag;
+		}
+
+		@Override
+		public long size() {
+			return size;
+		}
+
+		@Override
+		public long lastModified() {
+			return lastModified;
+		}
+	}
+
+	private final class ListParser2 extends DefaultHandler {
+		final List<ObjectEntry> entries = new ArrayList<>();
+
+		private final String bucket;
+
+		private final String prefix;
+
+		private final String delimiter;
+
+		boolean truncated;
+
+		private StringBuilder data;
+		private ObjectEntryImpl entry;
+
+		ListParser2(String bn, String p, String dlm) {
+			bucket = bn;
+			prefix = p;
+			delimiter = dlm;
+		}
+
+		void list() throws IOException {
+			final Map<String, String> args = new TreeMap<>();
+			if (prefix.length() > 0)
+				args.put("prefix", prefix); //$NON-NLS-1$
+			if (!entries.isEmpty())
+				args.put("marker", prefix + entries.get(entries.size() - 1).key()); //$NON-NLS-1$
+			if (delimiter != null) {
+				args.put("delimiter", delimiter); //$NON-NLS-1$
+			}
+
+			for (int curAttempt = 0; curAttempt < maxAttempts; curAttempt++) {
+				final HttpURLConnection c = open("GET", bucket, "", args); //$NON-NLS-1$ //$NON-NLS-2$
+				authorize(c);
+				switch (HttpSupport.response(c)) {
+					case HttpURLConnection.HTTP_OK:
+						truncated = false;
+						data = null;
+
+						final XMLReader xr;
+						try {
+							xr = XMLReaderFactory.createXMLReader();
+						} catch (SAXException e) {
+							throw new IOException(JGitText.get().noXMLParserAvailable);
+						}
+						xr.setContentHandler(this);
+						try (InputStream in = c.getInputStream()) {
+							xr.parse(new InputSource(in));
+						} catch (SAXException parsingError) {
+							throw new IOException(
+									MessageFormat.format(
+											JGitText.get().errorListing, prefix),
+									parsingError);
+						}
+						return;
+
+					case HttpURLConnection.HTTP_INTERNAL_ERROR:
+						continue;
+
+					default:
+						throw AmazonS3.this.error("Listing", prefix, c); //$NON-NLS-1$
+				}
+			}
+			throw maxAttempts("Listing", prefix); //$NON-NLS-1$
+		}
+
+		@Override
+		public void startElement(final String uri, final String name,
+														 final String qName, final Attributes attributes)
+				throws SAXException {
+			if ("Contents".equals(name)) {
+				entry = new ObjectEntryImpl();
+			}
+			if ("Key".equals(name) || "IsTruncated".equals(name) //$NON-NLS-1$ //$NON-NLS-2$
+				|| "LastModified".equals(name) || "ETag".equals(name) || "Size".equals(name)) //$NON-NLS-2$ //$NON-NLS-2$
+				data = new StringBuilder();
+		}
+
+		@Override
+		public void ignorableWhitespace(final char[] ch, final int s,
+																		final int n) throws SAXException {
+			if (data != null)
+				data.append(ch, s, n);
+		}
+
+		@Override
+		public void characters(char[] ch, int s, int n)
+				throws SAXException {
+			if (data != null)
+				data.append(ch, s, n);
+		}
+
+		@Override
+		public void endElement(final String uri, final String name,
+													 final String qName) throws SAXException {
+			if ("Contents".equals(name)) //$NON-NLS-1$
+				entries.add(entry);
+			else if ("Key".equals(name)) //$NON-NLS-1$
+				entry.key = data.toString().substring(prefix.length());
+			else if ("LastModified".equals(name)) //$NON-NLS-1$
+				entry.lastModified = Instant.parse(data.toString().substring(prefix.length())).toEpochMilli();
+			else if ("ETag".equals(name)) //$NON-NLS-1$
+				entry.etag = data.toString().substring(prefix.length());
+			else if ("Size".equals(name)) //$NON-NLS-1$
+				entry.size = Long.parseLong(data.toString().substring(prefix.length()));
 			else if ("IsTruncated".equals(name)) //$NON-NLS-1$
 				truncated = StringUtils.equalsIgnoreCase("true", data.toString()); //$NON-NLS-1$
 			data = null;
