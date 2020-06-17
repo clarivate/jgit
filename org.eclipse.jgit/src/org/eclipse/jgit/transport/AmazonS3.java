@@ -332,7 +332,7 @@ public class AmazonS3 {
 				args.put("versionId", version); //$NON-NLS-1$
 			}
 			final HttpURLConnection c = open("GET", bucket, key, args); //$NON-NLS-1$
-			authorize(c);
+			authorize(c, version);
 			switch (HttpSupport.response(c)) {
 				case HttpURLConnection.HTTP_OK:
 					encryption.validate(c, X_AMZ_META);
@@ -710,6 +710,10 @@ public class AmazonS3 {
 	}
 
 	void authorize(HttpURLConnection c) throws IOException {
+		authorize(c, null);
+	}
+
+	void authorize(HttpURLConnection c, String version) throws IOException {
 		/** pass the security token if provided, it is also expected to be signed */
 		if (token != null) {
 			c.setRequestProperty("x-amz-security-token", token); //$NON-NLS-1$
@@ -747,6 +751,9 @@ public class AmazonS3 {
 		s.append('/');
 		s.append(host.substring(0, host.length() - domain.length() - 1));
 		s.append(c.getURL().getPath());
+		if (version != null) {
+			s.append("?").append(version);
+		}
 
 		final String sec;
 		try {
