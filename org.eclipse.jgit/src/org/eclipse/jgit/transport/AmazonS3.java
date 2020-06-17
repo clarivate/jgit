@@ -326,9 +326,12 @@ public class AmazonS3 {
 	 */
 	public URLConnection get(String bucket, String key, String version)
 			throws IOException {
-		String versionedKey = version != null? "?versionId=" + version : key; //$NON-NLS-1$
 		for (int curAttempt = 0; curAttempt < maxAttempts; curAttempt++) {
-			final HttpURLConnection c = open("GET", bucket, versionedKey); //$NON-NLS-1$
+			Map<String, String> args = new HashMap<>();
+			if (version != null) {
+				args.put("versionId", version); //$NON-NLS-1$
+			}
+			final HttpURLConnection c = open("GET", bucket, key, args); //$NON-NLS-1$
 			authorize(c);
 			switch (HttpSupport.response(c)) {
 				case HttpURLConnection.HTTP_OK:
