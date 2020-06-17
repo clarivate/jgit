@@ -327,7 +327,7 @@ public class AmazonS3 {
 	public URLConnection get(String bucket, String key, String version)
 			throws IOException {
 		for (int curAttempt = 0; curAttempt < maxAttempts; curAttempt++) {
-			Map<String, String> args = new HashMap<>();
+			Map<String, String> args = new TreeMap<>();
 			if (version != null) {
 				args.put("versionId", version); //$NON-NLS-1$
 			}
