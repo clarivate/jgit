@@ -752,7 +752,7 @@ public class AmazonS3 {
 		s.append(host.substring(0, host.length() - domain.length() - 1));
 		s.append(c.getURL().getPath());
 		if (version != null) {
-			s.append("?").append(version);
+			s.append("?versionId=").append(version);
 		}
 
 		final String sec;
