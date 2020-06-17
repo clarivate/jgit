@@ -1015,15 +1015,15 @@ public class AmazonS3 {
 				entry.key = data.toString().substring(prefix.length());
 			else if ("LastModified".equals(name)) { //$NON-NLS-1$
 				try {
-					entry.lastModified = dateFormat.parse(data.toString().substring(prefix.length())).getTime();
+					entry.lastModified = dateFormat.parse(data.toString()).getTime();
 				} catch (ParseException e) {
 					throw new SAXException(e);
 				}
 			}
 			else if ("ETag".equals(name)) //$NON-NLS-1$
-				entry.etag = data.toString().substring(prefix.length());
+				entry.etag = data.toString();
 			else if ("Size".equals(name)) //$NON-NLS-1$
-				entry.size = Long.parseLong(data.toString().substring(prefix.length()));
+				entry.size = Long.parseLong(data.toString());
 			else if ("IsTruncated".equals(name)) //$NON-NLS-1$
 				truncated = StringUtils.equalsIgnoreCase("true", data.toString()); //$NON-NLS-1$
 			data = null;
