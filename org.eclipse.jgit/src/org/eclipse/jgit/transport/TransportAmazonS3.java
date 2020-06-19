@@ -98,7 +98,7 @@ import org.slf4j.LoggerFactory;
  */
 public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	static final String S3_SCHEME = "amazon-s3"; //$NON-NLS-1$
-	static final String MANIFEST_EXT = ".manifest";
+	static final String MANIFEST_OBJECT = "/.manifest";
 
 	private static final Logger LOG = LoggerFactory.getLogger(TransportAmazonS3.class);
 
@@ -137,6 +137,9 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	/** Bucket the remote repository is stored in. */
 	final String bucket;
 
+	/** Optional manifest file version that tracks object versions for strong read-after-write consistency guarantees. */
+	final String manifestVersion;
+
 	/**
 	 * Key prefix which all objects related to the repository start with.
 	 * <p>
@@ -150,21 +153,6 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	 */
 	private final String keyPrefix;
 
-
-	/**
-	 * Maintains object versions so they could be used
-	 * for strong read-after write consistency event after object updates.
-	 * <p>
-	 * On transport close, all files put versions are written to a manifest property file
-	 * with {keyPrefix}.manifest name (parallel to a s3 git folder)
-	 */
-	private final Properties objectVersions = new Properties();
-
-	/**
-	 * Whether any of objects have been put or deleted
-	 */
-	private boolean objectsUpdated = false;
-
 	TransportAmazonS3(final Repository local, final URIish uri)
 			throws NotSupportedException {
 		super(local, uri);
@@ -176,6 +164,7 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 
 		s3 = new AmazonS3(props);
 		bucket = uri.getHost();
+		manifestVersion = props.getProperty(AmazonS3.Keys.MANIFEST_VERSION);
 
 		String p = uri.getPath();
 		if (p.startsWith("/")) //$NON-NLS-1$
@@ -183,13 +172,6 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 		if (p.endsWith("/")) //$NON-NLS-1$
 			p = p.substring(0, p.length() - 1);
 		keyPrefix = p;
-
-		try {
-			readManifest(keyPrefix + MANIFEST_EXT);
-		} catch (IOException ex) {
-			LOG.error("Failed to load version manifest file", ex);
-			throw new RuntimeException("Failed to load version manifest file", ex);
-		}
 	}
 
 	private Properties loadProperties() throws NotSupportedException {
@@ -229,8 +211,10 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	/** {@inheritDoc} */
 	@Override
 	public FetchConnection openFetch() throws TransportException {
-		final DatabaseS3 c = new DatabaseS3(bucket, keyPrefix + "/objects"); //$NON-NLS-1$
+		final DatabaseS3 c = new DatabaseS3(bucket, keyPrefix + "/objects",
+				keyPrefix + MANIFEST_OBJECT, manifestVersion); //$NON-NLS-1$
 		final WalkFetchConnection r = new WalkFetchConnection(this, c);
+		c.setMessageWriter(r.getMessageWriter());
 		r.available(c.readAdvertisedRefs());
 		return r;
 	}
@@ -238,8 +222,10 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	/** {@inheritDoc} */
 	@Override
 	public PushConnection openPush() throws TransportException {
-		final DatabaseS3 c = new DatabaseS3(bucket, keyPrefix + "/objects"); //$NON-NLS-1$
+		final DatabaseS3 c = new DatabaseS3(bucket, keyPrefix + "/objects",
+				keyPrefix + MANIFEST_OBJECT, manifestVersion); //$NON-NLS-1$
 		final WalkPushConnection r = new WalkPushConnection(this, c);
+		c.setMessageWriter(r.getMessageWriter());
 		r.available(c.readAdvertisedRefs());
 		return r;
 	}
@@ -247,46 +233,6 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 	/** {@inheritDoc} */
 	@Override
 	public void close() {
-		if (objectsUpdated) {
-			writeManifest(keyPrefix + MANIFEST_EXT);
-		}
-	}
-
-	private void readManifest(String manifest) throws IOException {
-		try {
-			final URLConnection c = s3.get(bucket, manifest);
-			try (InputStream in = s3.decrypt(c)) {
-				objectVersions.load(in);
-			}
-		} catch (FileNotFoundException ex) {
-			//manifest does not exist yet
-		}
-	}
-
-	private void writeManifest(String manifest) {
-		try {
-			ByteOutputStream baos = new ByteOutputStream();
-			objectVersions.store(baos, null);
-			s3.put(bucket, manifest, baos.getBytes());
-		} catch (Exception ex) {
-			LOG.error("Error writing the manifest file {}", manifest, ex);
-		}
-	}
-
-	private void trackKey(String key, String version) {
-		if (version != null) {
-			String oldVersion = objectVersions.getProperty(version);
-			if (!version.equals(oldVersion)) {
-				objectVersions.put(key, version);
-				objectsUpdated = true;
-			}
-		}
-	}
-
-	private void untrackKey(String key) {
-		if (objectVersions.remove(key) != null) {
-			objectsUpdated = true;
-		}
 	}
 
 	class DatabaseS3 extends WalkRemoteObjectDatabase {
@@ -294,9 +240,41 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 
 		private final String objectsKey;
 
-		DatabaseS3(final String b, final String o) {
+		private final String manifestKey;
+
+		private final String manifestVersion;
+		/**
+		 * Maintains object versions so they could be used
+		 * for strong read-after write consistency event after object updates.
+		 * <p>
+		 * On transport close, all files put versions are written to a manifest property file
+		 * with {keyPrefix}.manifest name (parallel to a s3 git folder)
+		 */
+		private final Properties objectVersions = new Properties();
+
+		/**
+		 * Whether any of objects have been put or deleted
+		 */
+		private boolean objectsUpdated = false;
+
+
+		private Writer messageWriter;
+
+		DatabaseS3(final String b, final String o, final String manifest, final String version)
+				throws TransportException {
+
 			bucketName = b;
 			objectsKey = o;
+			manifestKey = manifest;
+			manifestVersion = version;
+
+			try {
+				readManifest(manifestKey, manifestVersion);
+			} catch (IOException ex) {
+				LOG.error("Failed to load version manifest file", ex);
+				throw new TransportException("Failed to load version manifest file", ex);
+			}
+
 		}
 
 		private String resolveKey(String subpath) {
@@ -332,7 +310,7 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 		@Override
 		WalkRemoteObjectDatabase openAlternate(String location)
 				throws IOException {
-			return new DatabaseS3(bucketName, resolveKey(location));
+			return new DatabaseS3(bucketName, resolveKey(location), manifestKey, manifestVersion);
 		}
 
 		@Override
@@ -373,7 +351,7 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 				final ProgressMonitor monitor, final String monitorTask)
 				throws IOException {
 			return s3.beginPut(bucket, resolveKey(path), monitor, monitorTask,
-					version-> trackKey(resolveKey(path), version));
+					version -> trackKey(resolveKey(path), version));
 		}
 
 		@Override
@@ -449,7 +427,56 @@ public class TransportAmazonS3 extends HttpTransport implements WalkTransport {
 
 		@Override
 		void close() {
-			// We do not maintain persistent connections.
+			try {
+				String newVersion = objectsUpdated? writeManifest() : manifestVersion;
+				messageWriter.write("manifest-version:" + newVersion + "\n");
+			} catch (IOException e) {
+				LOG.error("Error writing the manifest file {}", manifestKey, e);
+				try {
+					messageWriter.write("Error writing the version manifest file, keeping the old version\n");
+					messageWriter.write("manifest-version:" + manifestVersion + "\n");
+				} catch (IOException e2) {
+				}
+			}
 		}
+
+		private void setMessageWriter(Writer writer) {
+			this.messageWriter = writer;
+		}
+
+		private void readManifest(String manifest, String manifestVersion) throws IOException {
+			try {
+				final URLConnection c = s3.get(bucket, manifest, manifestVersion);
+				try (InputStream in = s3.decrypt(c)) {
+					objectVersions.load(in);
+				}
+			} catch (FileNotFoundException ex) {
+				//manifest does not exist yet
+			}
+		}
+
+		private String writeManifest() throws IOException {
+			ByteOutputStream baos = new ByteOutputStream();
+			objectVersions.store(baos, null);
+			return s3.put(bucket, manifestKey, baos.getBytes());
+		}
+
+		private void trackKey(String key, String version) {
+			if (version != null) {
+				String oldVersion = objectVersions.getProperty(version);
+				if (!version.equals(oldVersion)) {
+					objectVersions.put(key, version);
+					objectsUpdated = true;
+				}
+			}
+		}
+
+		private void untrackKey(String key) {
+			if (objectVersions.remove(key) != null) {
+				objectsUpdated = true;
+			}
+		}
+
+
 	}
 }
