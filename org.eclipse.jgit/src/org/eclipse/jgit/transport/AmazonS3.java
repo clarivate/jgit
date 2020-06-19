@@ -92,8 +92,6 @@ import org.eclipse.jgit.util.Base64;
 import org.eclipse.jgit.util.HttpSupport;
 import org.eclipse.jgit.util.StringUtils;
 import org.eclipse.jgit.util.TemporaryBuffer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -118,8 +116,6 @@ import org.xml.sax.helpers.XMLReaderFactory;
  * sensitive data from the operators of the S3 service.
  */
 public class AmazonS3 {
-
-	private static final Logger LOG = LoggerFactory.getLogger(AmazonS3.class);
 
 	private static final Set<String> SIGNED_HEADERS;
 
@@ -205,6 +201,7 @@ public class AmazonS3 {
 		String SECRET_KEY = "secretkey"; //$NON-NLS-1$
 
 		String TOKEN = "token"; //$NON-NLS-1$
+		String MANIFEST_VERSION = "manifest.version"; //$NON-NLS-1$
 		String PASSWORD = "password"; //$NON-NLS-1$
 		String CRYPTO_ALG = "crypto.algorithm"; //$NON-NLS-1$
 		String CRYPTO_VER = "crypto.version"; //$NON-NLS-1$
@@ -244,14 +241,15 @@ public class AmazonS3 {
 	 * # End-to-end encryption (hides content from S3 owners)
 	 * password: &lt;encryption pass-phrase&gt;
 	 * crypto.algorithm: PBEWithMD5AndDES
+	 *
+	 * # Optional version id of the manifest file that tracks object versions for read-after-write consistency guarantees
+	 * manifest.version:
 	 * </pre>
 	 *
 	 * @param props
 	 *            connection properties.
 	 */
 	public AmazonS3(final Properties props) {
-		LOG.info("supplied properties: {}", props);
-
 		domain = props.getProperty(Keys.DOMAIN, "s3.amazonaws.com"); //$NON-NLS-1$
 
 		publicKey = props.getProperty(Keys.ACCESS_KEY);
